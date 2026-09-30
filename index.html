@@ -311,10 +311,14 @@
       <div class="ttl"><small>Fatura · vence dia 01</small><span id="monthTitle">—</span></div>
       <button class="nav-btn" id="nextM">›</button>
     </div>
+    <div class="field" style="position:relative;margin-bottom:16px">
+      <input type="text" id="invoiceSearch" placeholder="Buscar por nome, valor total ou valor da parcela..." style="padding-right:36px">
+      <button id="invoiceSearchClear" title="Limpar" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;color:var(--ink-soft);font-size:18px;cursor:pointer;line-height:1">×</button>
+    </div>
     <div class="panel">
       <div class="invoice-head">
         <div>
-          <div class="label">Total a pagar</div>
+          <div class="label" id="monthTotalLabel">Total a pagar</div>
           <div class="due" id="dueInfo"></div>
         </div>
         <div class="total" id="monthTotal">R$ 0,00</div>
@@ -748,9 +752,29 @@ function renderRecent(){
 function renderFatura(){
   document.getElementById("monthTitle").textContent=`${MESES[viewYM.m]} ${viewYM.y}`;
   document.getElementById("dueInfo").textContent=`Vencimento: 01/${String(viewYM.m+1).padStart(2,"0")}/${viewYM.y}`;
-  const itens=parcelasDaFatura(viewYM);
+  const todos=parcelasDaFatura(viewYM);
+  const termo=(document.getElementById("invoiceSearch").value||"").trim().toLowerCase();
+  const numAlvo=termo?parseFloat(termo.replace(/\./g,"").replace(",",".")):null;
+  const bateValor=(v)=>{
+    if(numAlvo===null||isNaN(numAlvo))return false;
+    // casa se o número buscado bate com o valor (2 casas) ou está contido no texto do valor
+    const vf=Math.round(v*100)/100;
+    if(Math.abs(vf-numAlvo)<0.005)return true;
+    const txt=v.toFixed(2);                 // ex "1092.77"
+    const txtBr=v.toLocaleString("pt-BR",{minimumFractionDigits:2}); // ex "1.092,77"
+    return txt.includes(termo)||txtBr.includes(termo);
+  };
+  const itens=!termo?todos:todos.filter(i=>{
+    const nomeOk=i.desc.toLowerCase().includes(termo);
+    const parcelaOk=bateValor(i.valorBRL);            // valor da parcela (linha)
+    const totalOk=bateValor(i.valorBRL*i.parcelaTot); // valor total da compra
+    return nomeOk||parcelaOk||totalOk;
+  });
   const body=document.getElementById("invoiceBody");body.innerHTML="";
-  if(itens.length===0){body.innerHTML=`<tr><td colspan="4" class="empty">Nenhuma despesa nesta fatura.</td></tr>`;}
+  if(itens.length===0){
+    const msg=termo?`Nenhuma despesa encontrada para "${escapeHtml(termo)}".`:"Nenhuma despesa nesta fatura.";
+    body.innerHTML=`<tr><td colspan="4" class="empty">${msg}</td></tr>`;
+  }
   else itens.forEach(i=>{
     const dt=i.dataCompra.split("-").reverse().join("/");
     const orig=i.moeda!=="BRL"?`<div class="orig">${symbol[i.moeda]} ${i.valorOrig.toLocaleString("pt-BR",{minimumFractionDigits:2})} no total</div>`:"";
@@ -763,7 +787,11 @@ function renderFatura(){
         <td><div class="acts"><button class="edit" title="Editar" onclick="abrirEdicao('${i.id}')">✎</button><button class="del" title="Excluir" onclick="delCompra('${i.id}')">✕</button></div></td>
       </tr>`);
   });
-  document.getElementById("monthTotal").textContent=brl(totalDaFatura(viewYM));
+  // total: quando há busca, mostra o total dos itens filtrados; senão o total da fatura
+  const totalMostrado=termo?itens.reduce((s,i)=>s+i.valorBRL,0):totalDaFatura(viewYM);
+  document.getElementById("monthTotal").textContent=brl(totalMostrado);
+  document.getElementById("monthTotalLabel").textContent=termo?`Total filtrado (${itens.length})`:"Total a pagar";
+  document.getElementById("invoiceSearchClear").style.display=termo?"block":"none";
   const up=document.getElementById("upcomingList");up.innerHTML="";
   for(let n=1;n<=6;n++){
     const ym=ymAdd(viewYM,n);const t=totalDaFatura(ym);const cnt=parcelasDaFatura(ym).length;
@@ -934,6 +962,8 @@ document.getElementById("clearBtn").onclick=async()=>{
 };
 document.getElementById("prevM").onclick=()=>{viewYM=ymAdd(viewYM,-1);renderFatura();};
 document.getElementById("nextM").onclick=()=>{viewYM=ymAdd(viewYM,1);renderFatura();};
+document.getElementById("invoiceSearch").oninput=()=>renderFatura();
+document.getElementById("invoiceSearchClear").onclick=()=>{document.getElementById("invoiceSearch").value="";renderFatura();};
 document.getElementById("fxRefresh").onclick=fetchFx;
 document.getElementById("moeda").onchange=updateConvHint;
 document.getElementById("valor").oninput=updateConvHint;
